@@ -2,7 +2,7 @@ import os
 from aiogram import types
 from aiogram.dispatcher.filters.builtin import CommandStart
 from prisma import Prisma
-from loader import dp
+from loader import dp, db
 from datetime import datetime
 from dotenv import load_dotenv
 from keyboards.defaultbtns import owner_panel_keyboard, admin_panel_keyboard
@@ -11,14 +11,13 @@ load_dotenv()
 
 OWNER_ID = int(os.getenv("OWNER_ID"))
 
-db = Prisma()
+
 
 async def save_user_to_db(user: types.User):
     """Foydalanuvchi ma'lumotlarini saqlash funksiyasi"""
     try:
         print(f"Saving user {user.id} to the database...")
 
-        # Owner ID bo‘lsa owner, aks holda user
         if user.id == OWNER_ID:
             role = "owner"
         else:
@@ -63,7 +62,6 @@ async def save_user_to_db(user: types.User):
 @dp.message_handler(commands=['start'])
 async def handle_start(message: types.Message):
     """Start komandasi"""
-    await db.connect()  # Prisma bilan ulanish
     await save_user_to_db(message.from_user)
 
     # Foydalanuvchining rolini aniqlash
@@ -82,6 +80,5 @@ async def handle_start(message: types.Message):
         reply_markup=keyboard
     )
 
-    await db.disconnect()  # Ulanishdan chiqish
 
     

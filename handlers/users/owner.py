@@ -2,19 +2,19 @@ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.types import InputMediaPhoto, InputMediaVideo, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.dispatcher.filters import Text
-from loader import dp, bot
-from prisma import Prisma
+from loader import dp, db
 from aiogram.types  import ContentTypes, ContentType
 from states.btnsstates import AddAdminState, ButtonCreation
-from keyboards.inlinebtns import get_remove_admin_buttons, get_add_data_btn_buttons, get_add_more_buttons, get_confirmation_buttons, cancel_button
+from keyboards.inlinebtns import get_remove_admin_buttons, get_add_data_btn_finish_buttons, cancel_button
 from dotenv import load_dotenv
 import os
+import json
 import asyncio
 
 load_dotenv()
 
 OWNER_ID = int(os.getenv("OWNER_ID"))
-db = Prisma()
+
 
 
 #Owner uchun yangi admin qo'shish qismi!!!
@@ -35,13 +35,11 @@ async def add_admin_by_id(message: types.Message, state: FSMContext):
 
     admin_id = int(message.text.strip())
 
-    await db.connect()
 
     user = await db.user.find_first(where={"telegramId": admin_id})
 
     if not user:
         await message.answer("Bunday foydalanuvchi topilmadi! \nAdmin qilmoqchi bo'lgan user oldin botga /start bosishi kerak!!!")
-        await db.disconnect()
         return
     
     username = user.username  
@@ -57,7 +55,6 @@ async def add_admin_by_id(message: types.Message, state: FSMContext):
             parse_mode="Markdown",
             disable_web_page_preview=True
             )
-        await db.disconnect()
         await state.finish()
         return
     
@@ -73,7 +70,6 @@ async def add_admin_by_id(message: types.Message, state: FSMContext):
         disable_web_page_preview=True
     )
     
-    await db.disconnect()
     await state.finish()
 
 @dp.callback_query_handler(lambda call: call.data == "cancel", state=AddAdminState.waiting_for_admin_id)
@@ -104,7 +100,6 @@ async def remove_admin(callback_query: types.CallbackQuery):
     """Tanlangan adminni bazadan o‘chirish."""
     admin_id = int(callback_query.data.split(":")[1])
 
-    await db.connect()
 
     admin = await db.user.find_first(where={"telegramId": admin_id})
 
@@ -115,11 +110,6 @@ async def remove_admin(callback_query: types.CallbackQuery):
     await db.user.update(where={"telegramId": admin_id}, data={"role": "user"})
 
     await callback_query.message.edit_text(f"✅ Admin {admin.username} oddiy userga aylantirildi!")
-    await db.disconnect() 
-
-
-
-
 
 
 
@@ -134,98 +124,136 @@ async def remove_admin(callback_query: types.CallbackQuery):
 
 
 #owner va admin uchun tugma qo'shish 
-import json
-
 @dp.message_handler(lambda message: message.text == "➕ Yangi tugma qo‘shish", state=None)
 async def add_new_button(message: types.Message, state: FSMContext):
-    await db.connect()
-    user = await db.user.find_first(where={"telegramId": message.from_user.id})
-    if not user or user.role not in ["admin", "owner"]:
-        await message.answer("❌ Sizga bu amalni bajarishga ruxsat berilmagan!")
-        return
     await message.answer("✏️ Yangi tugma nomini kiriting (64 ta belgidan oshmasin):")
     await state.set_state(ButtonCreation.name)
 
+# **2. Tugma nomini kiritish**
 @dp.message_handler(state=ButtonCreation.name)
 async def enter_button_name(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text)
-    await message.answer("Tugmaga ma'lumot (matn yoki media) yuboring:")
+    existing_menu = await db.menu.find_first(where={"name": message.text})
+    
+    if existing_menu:
+        await message.answer("❌ Bunday nomdagi tugma allaqachon mavjud! Iltimos, boshqa nom kiriting:")
+        return 
+    await state.update_data(name=message.text, messages=[], subbuttons=[])
+    await message.answer("Tugmaga ma'lumot (matn yoki media) yuboring yoki ichki tugma qo‘shing:", reply_markup=get_add_data_btn_finish_buttons())
     await state.set_state(ButtonCreation.add_data)
 
-@dp.message_handler(content_types=['text', 'photo', 'video'], state=ButtonCreation.add_data)
+# **3. Ma'lumot qo'shish**
+@dp.message_handler(content_types=types.ContentType.ANY, state=ButtonCreation.add_data)
 async def add_data_to_button(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    menu_name = data.get("name")
-    user_id = message.from_user.id
+    messages = data.get("messages", [])
 
-    # Tugmani bazaga qo‘shish
-    menu = await db.menu.create({
-        "name": menu_name,
-        "creatorId": user_id
-    })
+    # Ma'lumotni shakllantirish
+    msg = {}
+    if message.text:
+        msg["type"] = "text"
+        msg["content"] = message.text
+    elif message.photo:
+        msg["type"] = "image"
+        msg["content"] = message.photo[-1].file_id
+    elif message.video:
+        msg["type"] = "video"
+        msg["content"] = message.video.file_id
+    elif message.document:
+        msg["type"] = "document"
+        msg["content"] = message.document.file_id
+    elif message.audio:
+        msg["type"] = "audio"
+        msg["content"] = message.audio.file_id
+    elif message.caption and message.photo:
+        msg["type"] = "image"
+        msg["content"] = {
+            "photo": message.photo[-1].file_id,
+            "caption": message.caption
+        }
+    elif message.caption and message.video:
+        msg["type"] = "video"
+        msg["content"] = {
+            "video": message.video.file_id,
+            "caption": message.caption
+        }
 
-    if not menu or not menu.id:
-        await message.answer("❌ Tugma yaratishda xatolik yuz berdi!")
+    # **Xatolikni oldini olish**
+    if "type" not in msg or "content" not in msg:
+        await message.answer("❌ Xatolik: Ma'lumot noto‘g‘ri formatda. Iltimos, qayta yuboring.")
         return
 
-    # Ma'lumotni bazaga qo‘shish
-    if message.text:
-        await db.menumessage.create({
-            "message": json.dumps({"text": message.text}),
-            "type": "text",
-            "menuId": menu.id
-        })
-    elif message.photo:
-        await db.menumessage.create({
-            "message": json.dumps({"photo": message.photo[-1].file_id}),
-            "type": "image",
-            "menuId": menu.id
-        })
-    elif message.video:
-        await db.menumessage.create({
-            "message": json.dumps({"video": message.video.file_id}),
-            "type": "video",
-            "menuId": menu.id
-        })
+    messages.append(msg)
+    await state.update_data(messages=messages)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Yana ma'lumot qo'shish", callback_data="add_more_data")],
-        [InlineKeyboardButton(text="Ichki tugma qo'shish", callback_data="add_subbutton")],
-        [InlineKeyboardButton(text="Tugatish", callback_data="finish")]
-    ])
+    await message.answer("✅ Ma'lumot qo'shildi. Keyingi qadamni tanlang:", reply_markup=get_add_data_btn_finish_buttons())
 
-    await message.answer("Ma'lumot qo'shildi. Keyingi qadamni tanlang:", reply_markup=keyboard)
-    await state.set_state(ButtonCreation.confirm_data)
-
-@dp.callback_query_handler(lambda c: c.data == "add_more_data", state=ButtonCreation.confirm_data)
+# **4. Ma'lumot qo'shish tugmasi bosilganda**
+@dp.callback_query_handler(lambda c: c.data == "add_more_data", state=ButtonCreation.add_data)
 async def add_more_data(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Tugmaga yana ma'lumot yuboring:")
-    await state.set_state(ButtonCreation.add_data)
+    await callback.message.edit_text("📩 Yangi ma'lumot (matn yoki media) yuboring:")
 
-@dp.callback_query_handler(lambda c: c.data == "add_subbutton", state=ButtonCreation.confirm_data)
+# **5. Ichki tugma qo'shish**
+@dp.callback_query_handler(lambda c: c.data == "add_subbutton", state=ButtonCreation.add_data)
 async def add_subbutton(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Ichki tugma nomini kiriting:")
+    await callback.message.edit_text("Ichki tugma nomini kiriting:")
     await state.set_state(ButtonCreation.add_subbutton)
 
+# **6. Ichki tugma nomini kiritish**
 @dp.message_handler(state=ButtonCreation.add_subbutton)
 async def enter_subbutton_name(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    parent_menu = await db.menu.find_first(where={"name": data.get("name")})
-    
-    if not parent_menu:
-        await message.answer("❌ Asosiy tugma topilmadi!")
-        return
-    
-    sub_menu = await db.menu.create({
-        "name": message.text,
-        "creatorId": message.from_user.id,
-        "parentId": parent_menu.id
-    })
+    subbuttons = data.get("subbuttons", [])
+    subbuttons.append({"name": message.text, "messages": []})
+    await state.update_data(subbuttons=subbuttons)
 
-    await message.answer(f"Ichki tugma '{message.text}' yaratildi! Tugmani tugatish yoki davom ettirishni tanlang.")
-    await state.set_state(ButtonCreation.confirm)
+    await message.answer(f"📌 Ichki tugma '{message.text}' yaratildi! Keyingi qadamni tanlang:", reply_markup=get_add_data_btn_finish_buttons())
+    await state.set_state(ButtonCreation.add_data)  # Ichki tugmaga ma'lumot qo'shish uchun qayta `add_data` state'iga o'tamiz
 
-@dp.callback_query_handler(lambda c: c.data == "finish", state=ButtonCreation.confirm_data)
+# **7. Tugatish bosilganda**
+@dp.callback_query_handler(lambda c: c.data == "finish", state=ButtonCreation.add_data)
 async def finish_button_creation(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Tugma yaratildi va bazaga saqlandi! ✅")
+    data = await state.get_data()
+    menu_name = data.get("name", "Noma'lum tugma")
+    messages = data.get("messages", [])
+    subbuttons = data.get("subbuttons", [])
+
+    if not messages and not any(sub["messages"] for sub in subbuttons):
+        await callback.message.edit_text("❌ Siz tugmaga hech qanday ma'lumot kiritmadingiz! Kamida bitta ma'lumot qo'shing.")
+        return
+
+    menu = await db.menu.create({"name": menu_name, "creatorId": callback.from_user.id})
+    # for msg in messages:
+    #     await db.menumessage.create({"message": json.dumps(msg), "menuId": menu.id})
+
+    for msg in messages:
+        if "type" not in msg or "content" not in msg:
+            print("DEBUG: msg ->", msg)  # msg obyektini tekshiramiz
+            await callback.message.edit_text("❌ Xatolik: Ma'lumot noto‘g‘ri formatda.")
+            return
+        
+        await db.menumessage.create({
+            "type": msg["type"],  # ✅ Type maydonini aniq qo‘shamiz
+            "message": json.dumps(msg["content"]),  # ✅ Content maydonini saqlaymiz
+            "menuId": menu.id
+        })
+
+
+    for sub in subbuttons:
+        if not sub["messages"]:
+            await callback.message.edit_text(f"❌ Ichki tugma '{sub['name']}' ichida hech qanday ma'lumot yo‘q! Iltimos, unga ma'lumot qo'shing.")
+            return
+        sub_menu = await db.menu.create({"name": sub["name"], "creatorId": callback.from_user.id, "parentId": menu.id})
+        for sub_msg in sub["messages"]:
+            await db.menumessage.create({"message": json.dumps(sub_msg), "menuId": sub_menu.id})
+
+    summary = (f"✅ Tugma yaratildi va bazaga saqlandi!\n\n"
+               f"📌 Tugma nomi: {menu_name}\n"
+               f"📩 Tugmaga kiritilgan ma'lumotlar soni: {len(messages)}\n"
+               f"📂 Ichki tugmalar soni: {len(subbuttons)}\n")
+    for sub in subbuttons:
+        summary += f"  ├ {sub['name']} - {len(sub['messages'])} ta ma'lumot\n"
+
+    await callback.message.answer(summary)
     await state.finish()
+
+

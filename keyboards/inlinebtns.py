@@ -1,12 +1,8 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from prisma import Prisma
-
-db = Prisma()
+from loader import db
 
 async def get_remove_admin_buttons():
     """Barcha adminlarni inline button sifatida chiqaradi. Agar adminlar bo'lmasa, None qaytaradi."""
-    if not db.is_connected():  # Avval ulanish borligini tekshiramiz
-        await db.connect()
 
     admins = await db.user.find_many(where={"role": "admin"})  # Asinxron query
 
@@ -26,27 +22,12 @@ def cancel_button():
     )
     return keyboard
 
-def get_add_data_btn_buttons():
+def get_add_data_btn_finish_buttons():
     keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("📄 Ma’lumot qo‘shish", callback_data="add_content"))
-    keyboard.add(InlineKeyboardButton("🔘 Ichiga tugmalar qo‘shish", callback_data="add_subbuttons"))
+    keyboard.add(InlineKeyboardButton("➕📩 Ma'lumot qo'shish", callback_data="add_more_data"))
+    keyboard.add(InlineKeyboardButton(text="➕📂 Ichki tugma qo'shish", callback_data="add_subbutton"))
+    keyboard.add(InlineKeyboardButton(text="✅ Tugatish", callback_data="finish")) 
     return keyboard
-
-
-def get_confirmation_buttons():
-    """Tasdiqlash tugmalari"""
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("✅ Ha", callback_data="confirm"))
-    keyboard.add(InlineKeyboardButton("❌ Yo‘q", callback_data="stop_media"))
-    return keyboard
-
-def get_add_more_buttons():
-    """Yana ma'lumot qo‘shish yoki yakunlash"""
-    keyboard = InlineKeyboardMarkup()
-    keyboard.add(InlineKeyboardButton("➕ Yana qo‘shish", callback_data="add_more"))
-    keyboard.add(InlineKeyboardButton("✅ Tugatish", callback_data="finish"))
-    return keyboard
-
 
 
 
