@@ -19,5 +19,6 @@ async def on_shutdown(dispatcher):
     """Bot o‘chirilganda Prisma client’ni uzish"""
     await prisma_db.disconnect()
 
+
 if __name__ == '__main__':
     executor.start_polling(dp, on_startup=on_startup, on_shutdown=on_shutdown)
