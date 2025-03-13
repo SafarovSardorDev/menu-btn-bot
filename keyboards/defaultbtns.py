@@ -29,3 +29,4 @@ def admin_panel_keyboard():
         KeyboardButton("🗑 Tugmani o‘chirish"),
     )
     return keyboard
+

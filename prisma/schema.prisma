@@ -15,7 +15,7 @@ model User {
     lastName     String?
     isPremium    Boolean?
     isBot        Boolean   @default(false)
-    languageCode String   @default("uz") // User tilini tanlashi uchun
+    languageCode String   @default("uz") 
     username     String?
     role         UserRole  @default(user)
     createdAt    DateTime  @default(now())
@@ -28,7 +28,7 @@ model User {
 model Menu {
     id        Int   @id @default(autoincrement())
     name      String
-    feedbacks Feedback[] // Bir menu ko‘p feedbacklarga ega bo‘lishi mumkin
+    feedbacks Feedback[] 
     isActive  Boolean @default(true)  // True bo‘lsa, userlarga ko‘rinadi, false bo‘lsa, faqat adminlarga
     parent    Menu? @relation("menu", fields: [parentId], references: [id], onDelete: Cascade)
     parentId  Int?
@@ -48,13 +48,13 @@ model Menu {
 
 model MenuMessage {
     id        Int       @id @default(autoincrement())
-    message   Json
-    type      MediaType  
+    message   Json      
     menu      Menu      @relation(fields: [menuId], references: [id], onDelete: Cascade, onUpdate: Cascade)
     menuId    Int
     createdAt DateTime  @default(now())
     updatedAt DateTime? @updatedAt
 }
+
 
 model Feedback {
     id        Int      @id @default(autoincrement())
@@ -72,11 +72,4 @@ enum UserRole {
     user
 }
 
-enum MediaType {
-    text
-    image
-    video
-    pdf
-    document
-    link // Link tugmalar uchun qo‘shildi
-}
+

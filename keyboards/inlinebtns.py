@@ -27,6 +27,7 @@ def get_add_data_btn_finish_buttons():
     keyboard.add(InlineKeyboardButton("➕📩 Ma'lumot qo'shish", callback_data="add_more_data"))
     keyboard.add(InlineKeyboardButton(text="➕📂 Ichki tugma qo'shish", callback_data="add_subbutton"))
     keyboard.add(InlineKeyboardButton(text="✅ Tugatish", callback_data="finish")) 
+    keyboard.add(InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel"))
     return keyboard
 
 
