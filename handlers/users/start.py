@@ -61,10 +61,9 @@ async def save_user_to_db(user: types.User):
 
 @dp.message_handler(commands=['start'])
 async def handle_start(message: types.Message):
-    """Start komandasi"""
+
     await save_user_to_db(message.from_user)
 
-    # Foydalanuvchining rolini aniqlash
     if message.from_user.id == OWNER_ID:
         role = "Owner"
         keyboard = owner_panel_keyboard()
@@ -73,12 +72,18 @@ async def handle_start(message: types.Message):
         keyboard = admin_panel_keyboard()
     else:
         role = "User"
-        keyboard = None  # Oddiy user uchun hech qanday tugma berilmaydi
+        keyboard = None
 
-    await message.answer(
-        f"Salom {message.from_user.username}. Botga xush kelibsiz. Siz {role} sifatida ro'yxatga olindingiz.",
-        reply_markup=keyboard
-    )
+    if message.from_user.username:
+        await message.answer(
+            f"Salom {message.from_user.username}. Botga xush kelibsiz. Siz {role} sifatida ro'yxatga olindingiz.",
+            reply_markup=keyboard
+        )
+    else:
+        await message.answer(
+            f"Salom {message.from_user.first_name} {message.from_user.last_name}. Botga xush kelibsiz. Siz {role} sifatida ro'yxatga olindingiz.",
+            reply_markup=keyboard
+        )
 
 
     

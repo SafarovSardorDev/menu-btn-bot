@@ -2,8 +2,8 @@ from aiogram import types
 from aiogram.dispatcher import FSMContext
 from aiogram.types import InputMediaPhoto, InputMediaVideo, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.dispatcher.filters import Text
-from loader import dp, db
-from aiogram.types  import ContentTypes, ContentType
+from loader import dp, db, bot
+from aiogram.types  import ContentTypes, ContentType, ReplyKeyboardRemove
 from states.btnsstates import AddAdminState, ButtonCreation
 from keyboards.defaultbtns import owner_panel_keyboard, admin_panel_keyboard
 from keyboards.inlinebtns import get_remove_admin_buttons, cancel_button, get_add_data_btn_finish_buttons
@@ -18,61 +18,73 @@ load_dotenv()
 OWNER_ID = int(os.getenv("OWNER_ID"))
 
 
-
-#Owner uchun yangi admin qo'shish qismi!!!
 @dp.message_handler(Text(equals="🆕 Admin qo‘shish"))
 async def ask_admin_id(message: types.Message):
     """Admin qo‘shish uchun ID so‘rash"""
     if message.from_user.id != OWNER_ID:
         return await message.answer("Bu funksiyadan faqat Owner foydalanishi mumkin.")
-
     await message.answer("🆔 Admin qilib qo‘shmoqchi bo‘lgan foydalanuvchining Telegram ID sini kiriting (faqat son kiritish mumkin):")
     await AddAdminState.waiting_for_admin_id.set()
 
 @dp.message_handler(state=AddAdminState.waiting_for_admin_id)
 async def add_admin_by_id(message: types.Message, state: FSMContext):
-    """Owner admin qo'shishi uchun"""
+    """Owner admin qo‘shishi uchun so‘rov yuborish"""
     if not message.text.isdigit():
         return await message.answer("❌ Noto‘g‘ri format! Faqat son kiriting.\n🆔 Admin ID ni kiriting:", reply_markup=cancel_button())
-
     admin_id = int(message.text.strip())
-
-
     user = await db.user.find_first(where={"telegramId": admin_id})
-
     if not user:
-        await message.answer("Bunday foydalanuvchi topilmadi! \nAdmin qilmoqchi bo'lgan user oldin botga /start bosishi kerak!!!")
-        return
-    
-    username = user.username  
-
-    if username:
-        username_text = f"[@{username}](https://t.me/{username})"
-    else:
-        username_text = "Ismi mavjud emas"
-
+        return await message.answer("Bunday foydalanuvchi topilmadi! \nAdmin qilmoqchi bo'lgan user oldin botga /start bosishi kerak!!!")
+    username = user.username or f"User ({admin_id})"
+    user_link = f"[{username}](https://t.me/{username})" if user.username else f"User ({admin_id})"
     if user.role == "admin":
-        await message.answer(
-            f"id-{admin_id}, {username_text} - bu foydalanuvchi allaqachon admin❗️",
-            parse_mode="Markdown",
-            disable_web_page_preview=True
-            )
-        await state.finish()
-        return
-    
+        return await message.answer(f"🚨 {user_link} allaqachon admin!", parse_mode="Markdown", disable_web_page_preview=True)
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("✅ Ha", callback_data=f"confirm_admin_{admin_id}_{message.from_user.id}"),
+        InlineKeyboardButton("❌ Yo‘q", callback_data=f"reject_admin_{admin_id}_{message.from_user.id}")
+    )
+    try:
+        await bot.send_message(
+            admin_id,
+            f"👤 {message.from_user.full_name} sizni admin qilmoqchi. Adminlikni qabul qilasizmi?",
+            reply_markup=keyboard
+        )
+        await message.answer(f"📩 {user_link} ga admin bo‘lish taklifi yuborildi.", parse_mode="Markdown", disable_web_page_preview=True)
+    except Exception as e:
+        await message.answer("❌ Foydalanuvchiga xabar yuborib bo‘lmadi. U botni bloklagan bo‘lishi mumkin.")
+    await state.finish()
 
+
+@dp.callback_query_handler(lambda c: c.data.startswith("confirm_admin_"))
+async def confirm_admin(callback_query: types.CallbackQuery):
+    """Foydalanuvchi adminlikni qabul qilganida"""
+    data = callback_query.data.split("_")
+    admin_id = int(data[2])
+    owner_id = int(data[3])
+    user = await db.user.find_first(where={"telegramId": admin_id})
+    username = user.username or f"User ({admin_id})"
+    user_link = f"[{username}](https://t.me/{username})" if user.username else f"User ({admin_id})"
     await db.user.update(
         where={"telegramId": admin_id},
         data={"role": "admin"}
     )
+    await bot.send_message(admin_id, "🎉 Siz endi adminsiz!", reply_markup=admin_panel_keyboard())
+    await bot.send_message(owner_id, f"✅ {user_link} adminlikni **qabul qildi**!", parse_mode="Markdown", disable_web_page_preview=True)
+    await callback_query.message.edit_text("✅ Siz adminlikni qabul qildingiz.")
 
-    await message.answer(
-        f"Foydalanuvchi {admin_id} {username_text} endi admin sifatida belgilandi ✅",
-        parse_mode="Markdown",
-        disable_web_page_preview=True
-    )
-    
-    await state.finish()
+@dp.callback_query_handler(lambda c: c.data.startswith("reject_admin_"))
+async def reject_admin(callback_query: types.CallbackQuery):
+    """Foydalanuvchi adminlikni rad etganida"""
+    data = callback_query.data.split("_")
+    admin_id = int(data[2])
+    owner_id = int(data[3])
+    user = await db.user.find_first(where={"telegramId": admin_id})
+    username = user.username or f"User ({admin_id})"
+    user_link = f"[{username}](https://t.me/{username})" if user.username else f"User ({admin_id})"
+    await bot.send_message(owner_id, f"❌ {user_link} adminlikni **rad qildi**!", parse_mode="Markdown", disable_web_page_preview=True)
+    await callback_query.message.edit_text("❌ Siz adminlikni rad qildingiz.")
+
 
 @dp.callback_query_handler(lambda call: call.data == "cancel", state=AddAdminState.waiting_for_admin_id)
 async def cancel_add_admin(call: types.CallbackQuery, state: FSMContext):
@@ -86,7 +98,6 @@ async def remove_admin_handler(message: types.Message):
     if message.from_user.id != OWNER_ID:
         await message.reply("🚫 Bu funksiyadan faqat bot egasi foydalanishi mumkin.")
         return
-
     try:
         keyboard = await get_remove_admin_buttons() 
         if keyboard is None:
@@ -101,17 +112,29 @@ async def remove_admin_handler(message: types.Message):
 async def remove_admin(callback_query: types.CallbackQuery):
     """Tanlangan adminni bazadan o‘chirish."""
     admin_id = int(callback_query.data.split(":")[1])
-
-
     admin = await db.user.find_first(where={"telegramId": admin_id})
 
     if not admin:
         await callback_query.answer("⚠️ Bunday admin topilmadi!", show_alert=True)
         return
 
+    # 🎯 Foydalanuvchini oddiy userga aylantiramiz
     await db.user.update(where={"telegramId": admin_id}, data={"role": "user"})
 
-    await callback_query.message.edit_text(f"✅ Admin {admin.username} oddiy userga aylantirildi!")
+    # 🎯 Adminni o‘chirgan Ownerga xabar
+    await callback_query.message.edit_text(f"✅ Admin [{admin.username}](https://t.me/{admin.username}) oddiy userga aylantirildi!", parse_mode="Markdown", disable_web_page_preview=True)
+
+    # 🎯 Admin bo'lgan userga xabar yuborish va tugmalarni o‘chirish
+    try:
+        await bot.send_message(
+            admin_id,
+            "🚫 Sizning adminligingiz bekor qilindi. Endi siz oddiy foydalanuvchisiz.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    except Exception as e:
+        await callback_query.message.answer(f"⚠️ Admin [{admin.username}](https://t.me/{admin.username}) ga xabar yuborib bo‘lmadi.\nSabab: `{e}`", parse_mode="Markdown")
+
+
 
 
 
@@ -126,7 +149,6 @@ async def remove_admin(callback_query: types.CallbackQuery):
 
 
 #owner va admin uchun tugma qo'shish
-
 @dp.message_handler(lambda message: message.text == "➕ Yangi tugma qo‘shish", state="*")
 async def add_new_button(message: types.Message, state: FSMContext):
     await message.answer("✏️ Yangi tugma nomini kiriting (64 ta belgidan oshmasin):")
@@ -407,65 +429,5 @@ async def create_submenus(subbuttons, parent_id, creator_id):
 async def cancel_process(callback: types.CallbackQuery, state: FSMContext):
     await state.finish()
     await callback.message.edit_text("❌ Jarayon bekor qilindi.")
-
-
-#     data = await state.get_data()
-#     menu_name = data.get("name", "Noma'lum tugma")
-#     messages = data.get("messages", [])
-#     subbuttons = data.get("subbuttons", [])
-#     creator_id = callback.from_user.id
-
-#     if not messages and not any(sub["messages"] for sub in subbuttons):
-#         await callback.message.edit_text(
-#             "❌ Siz tugmaga hech qanday ma'lumot kiritmadingiz! Kamida bitta ma'lumot qo‘shing.",
-#             reply_markup=get_add_data_btn_finish_buttons()
-#         )
-#         return
-
-#     try:
-#         for msg in messages:
-#             if msg["type"] not in VALID_MEDIA_TYPES or not msg["message"].get("content"):
-#                 await callback.message.answer(f"❌ Noto‘g‘ri media turi yoki bo‘sh content: {msg['type']}!")
-#                 return
-
-#         menu = await db.menu.create({
-#             "name": menu_name,
-#             "creatorId": creator_id,
-#             "parentId": None,
-#             "order": 0
-#         })
-
-#         for msg in messages:
-#             await db.menumessage.create({
-#                 "type": msg["type"],
-#                 "message": json.dumps(msg["message"]),
-#                 "menuId": menu.id
-#             })
-
-#         for sub in subbuttons:
-#             if sub["messages"]:
-#                 sub_menu = await db.menu.create({
-#                     "name": sub["name"],
-#                     "creatorId": creator_id,
-#                     "parentId": menu.id,
-#                     "order": 0
-#                 })
-#                 for sub_msg in sub["messages"]:
-#                     await db.menumessage.create({
-#                         "type": sub_msg["type"],
-#                         "message": json.dumps(sub_msg["message"]),
-#                         "menuId": sub_menu.id
-#                     })
-
-#         summary = f"✅ Tugma yaratildi va bazaga saqlandi!\n\n📌 Tugma nomi: {menu_name}\n📩 Tugmaga kiritilgan ma'lumotlar soni: {len(messages)}\n📂 Ichki tugmalar soni: {len(subbuttons)}\n"
-#         for sub in subbuttons:
-#             summary += f"  ├ {sub['name']} - {len(sub['messages'])} ta ma'lumot\n"
-
-#         await callback.message.answer(summary)
-#         await state.finish()
-
-#     except Exception as e:
-#         await callback.message.answer("❌ Ma'lumotlarni saqlashda xatolik yuz berdi!")
-#         print(f"❌ Xatolik: {e}")
 
 # SET client_encoding = 'UTF8';
